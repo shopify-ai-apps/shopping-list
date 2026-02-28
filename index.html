@@ -128,9 +128,9 @@
 <body>
 
 <!-- PIN SCREEN -->
-<div id="pin-screen">
+<div id="pin-screen" style="display:none">
   <h2>🛒 Need to Buy</h2>
-  <p>Enter PIN to continue</p>
+  <p id="pin-subtitle">Enter PIN to continue</p>
   <div class="pin-dots">
     <div class="pin-dot" id="dot-0"></div>
     <div class="pin-dot" id="dot-1"></div>
@@ -170,7 +170,10 @@
 <!-- EDIT BANNER -->
 <div id="edit-banner">
   <span>✏️ Tap ✏️ to rename, 🗑 to delete.</span>
-  <button id="export-btn" onclick="openExport()">📤 Export</button>
+  <div style="display:flex;gap:6px;">
+    <button id="export-btn" onclick="openExport()">📤 Export</button>
+    <button id="export-btn" onclick="openChangePin()" style="background:#1a0a2a;border-color:#A855F7;color:#A855F7;">🔑 PIN</button>
+  </div>
 </div>
 
 <!-- SYNC BAR -->
@@ -361,6 +364,7 @@ function initFirebase() {
     needed = val || {};
     renderAll();
   });
+  initPin();
 }
 
 if (window._fbReady) initFirebase();
@@ -755,16 +759,36 @@ function openWhatsApp() {
 }
 
 // ── PIN ───────────────────────────────────────────────────────────
-const CORRECT_PIN = '1083'; // ← change this to your PIN
-let pinEntry = '';
+let pinEntry    = '';
+let pinMode     = 'enter';   // 'enter' | 'set' | 'set-confirm'
+let pinSetFirst = '';
+
+async function hashPin(pin) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pin));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+async function initPin() {
+  // Load hash from Firebase
+  const result = await new Promise(res => window._fbListen('pinHash', val => res(val)));
+  if (!result) {
+    // No PIN set yet — prompt to create one
+    pinMode = 'set';
+    document.querySelector('#pin-screen h2').textContent = '🛒 Need to Buy';
+    document.getElementById('pin-subtitle').textContent  = 'Create a PIN';
+    document.getElementById('pin-screen').style.display  = 'flex';
+  } else {
+    pinMode = 'enter';
+    document.getElementById('pin-subtitle').textContent = 'Enter PIN to continue';
+    document.getElementById('pin-screen').style.display = 'flex';
+  }
+}
 
 function pinPress(digit) {
   if (pinEntry.length >= 4) return;
   pinEntry += digit;
   updatePinDots();
-  if (pinEntry.length === 4) {
-    setTimeout(() => checkPin(), 150);
-  }
+  if (pinEntry.length === 4) setTimeout(() => checkPin(), 150);
 }
 
 function pinDelete() {
@@ -777,23 +801,52 @@ function updatePinDots(state) {
   for (let i = 0; i < 4; i++) {
     const dot = document.getElementById(`dot-${i}`);
     dot.className = 'pin-dot';
-    if (state === 'error') dot.classList.add('error');
+    if (state === 'error')   dot.classList.add('error');
     else if (i < pinEntry.length) dot.classList.add('filled');
   }
 }
 
-function checkPin() {
-  if (pinEntry === CORRECT_PIN) {
-    document.getElementById('pin-screen').style.display = 'none';
-  } else {
-    updatePinDots('error');
-    document.getElementById('pin-error').textContent = 'Incorrect PIN';
-    setTimeout(() => {
-      pinEntry = '';
-      updatePinDots();
-      document.getElementById('pin-error').textContent = '';
-    }, 1000);
+async function checkPin() {
+  if (pinMode === 'enter') {
+    const stored = await new Promise(res => window._fbListen('pinHash', val => res(val)));
+    const hash = await hashPin(pinEntry);
+    if (hash === stored) {
+      document.getElementById('pin-screen').style.display = 'none';
+    } else {
+      updatePinDots('error');
+      document.getElementById('pin-error').textContent = 'Incorrect PIN';
+      setTimeout(() => { pinEntry = ''; updatePinDots(); document.getElementById('pin-error').textContent = ''; }, 1000);
+    }
+  } else if (pinMode === 'set') {
+    pinSetFirst = pinEntry;
+    pinEntry = '';
+    updatePinDots();
+    pinMode = 'set-confirm';
+    document.getElementById('pin-subtitle').textContent = 'Confirm your PIN';
+  } else if (pinMode === 'set-confirm') {
+    if (pinEntry === pinSetFirst) {
+      const hash = await hashPin(pinEntry);
+      window._fbSet('pinHash', hash);
+      document.getElementById('pin-screen').style.display = 'none';
+    } else {
+      updatePinDots('error');
+      document.getElementById('pin-error').textContent = "PINs don't match — try again";
+      setTimeout(() => {
+        pinEntry = ''; pinSetFirst = ''; pinMode = 'set';
+        updatePinDots();
+        document.getElementById('pin-error').textContent = '';
+        document.getElementById('pin-subtitle').textContent = 'Create a PIN';
+      }, 1200);
+    }
   }
+}
+
+function openChangePin() {
+  pinMode = 'set'; pinEntry = ''; pinSetFirst = '';
+  updatePinDots();
+  document.getElementById('pin-error').textContent = '';
+  document.getElementById('pin-subtitle').textContent = 'Create a new PIN';
+  document.getElementById('pin-screen').style.display = 'flex';
 }
 
 // ── Modal helpers ─────────────────────────────────────────────────
