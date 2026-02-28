@@ -416,7 +416,7 @@ function renderGrid() {
       tile.style.background = active ? cat.color : '#1c1c1c';
       tile.style.boxShadow  = active ? `0 3px 14px ${cat.color}44` : 'none';
       tile.style.borderColor = active ? 'transparent' : '#252525';
-      tile.innerHTML = `${escHtml(item)}${active ? ' <span>✓</span>' : ''}`;
+      tile.innerHTML = escHtml(item);
       tile.onclick = () => toggleItem(item);
       wrap.appendChild(tile);
       // Edit/delete icons
